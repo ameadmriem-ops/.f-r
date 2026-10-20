@@ -34,9 +34,135 @@ body{background:#000;color:#fff;font-family:Arial,sans-serif;-webkit-tap-highlig
 .movie-card:focus {
   outline: none;
 }
-.movie-card:focus .poster-wrapper {
-  outline: 3px solid #e50914 !important;
-  box-shadow: 0 0 16px rgba(229, 9, 20, 0.7);
+.movie-card:focus .poster-wrapper,
+.movie-card.dpad-focused .poster-wrapper,
+.movie-card:focus-visible .poster-wrapper {
+  outline: 4px solid #e50914 !important;
+  border-color: #ffffff !important;
+  box-shadow: 0 0 28px rgba(229, 9, 20, 0.95), 0 8px 30px rgba(0, 0, 0, 0.9) !important;
+}
+.movie-card.dpad-focused,
+.movie-card:focus-visible {
+  transform: scale(1.08) translateY(-6px) !important;
+  z-index: 30 !important;
+}
+
+/* ================= Android TV & Large Screen Layout (16:9, 1080p, 4K) ================= */
+body.tv-mode #app,
+@media (min-width: 900px) {
+  #app {
+    max-width: 100% !important;
+    padding: 0 48px 100px 48px !important;
+  }
+  .top-bar {
+    max-width: 100% !important;
+    left: 0 !important;
+    transform: none !important;
+    padding: 0 48px !important;
+    height: 70px !important;
+  }
+  .top-bar .logo {
+    font-size: 30px !important;
+  }
+  .top-bar-actions {
+    gap: 16px !important;
+  }
+  .top-bar button {
+    width: 44px !important;
+    height: 44px !important;
+    font-size: 20px !important;
+  }
+  .bottom-nav {
+    max-width: 100% !important;
+    left: 0 !important;
+    transform: none !important;
+    height: 86px !important;
+    padding: 0 48px !important;
+    justify-content: center !important;
+    gap: 20px !important;
+    background: rgba(8, 8, 8, 0.95) !important;
+    backdrop-filter: blur(12px) !important;
+  }
+  .bottom-nav button {
+    max-width: 160px !important;
+    font-size: 24px !important;
+    padding: 8px 16px !important;
+    border-radius: 14px !important;
+  }
+  .bottom-nav button span {
+    font-size: 13px !important;
+  }
+  .hero {
+    height: 280px !important;
+    border-radius: 20px !important;
+    margin: 75px 0 20px 0 !important;
+  }
+  .hero h1 {
+    font-size: 48px !important;
+  }
+  .cards-grid-3, .movies-grid {
+    grid-template-columns: repeat(auto-fill, minmax(185px, 1fr)) !important;
+    gap: 26px 20px !important;
+    padding: 18px 0 44px 0 !important;
+  }
+  .cards-scroll-row {
+    gap: 22px !important;
+    padding: 0 0 24px 0 !important;
+  }
+  .cards-scroll-row .movie-card {
+    width: 185px !important;
+    min-width: 185px !important;
+    flex: 0 0 185px !important;
+  }
+  .poster-wrapper {
+    height: 270px !important;
+    border-radius: 16px !important;
+  }
+  .movie-card h3.card-title,
+  .movie-card h3 {
+    font-size: 14.5px !important;
+    margin-top: 8px !important;
+  }
+  .movie-card p {
+    font-size: 12.5px !important;
+  }
+}
+
+/* TV Remote D-Pad Focus Ring on buttons, items & controls */
+button:focus,
+button.dpad-focused,
+button:focus-visible,
+.drawer-item:focus,
+.drawer-item.dpad-focused,
+.drawer-item:focus-visible,
+.episode-btn:focus,
+.episode-btn.dpad-focused,
+.episode-btn:focus-visible,
+.back-btn:focus,
+.back-btn.dpad-focused,
+.back-btn:focus-visible,
+.movies-series-tab:focus,
+.movies-series-tab.dpad-focused,
+input:focus,
+input.dpad-focused {
+  outline: 3.5px solid #e50914 !important;
+  box-shadow: 0 0 22px rgba(229, 9, 20, 0.85), 0 4px 14px rgba(0, 0, 0, 0.8) !important;
+  transform: scale(1.05) !important;
+  z-index: 25 !important;
+  border-color: #ffffff !important;
+}
+
+.episode-btn:focus,
+.episode-btn.dpad-focused {
+  background: #280b0e !important;
+  color: #ffffff !important;
+}
+
+.bottom-nav button:focus,
+.bottom-nav button.dpad-focused {
+  background: rgba(229, 9, 20, 0.2) !important;
+  border-color: #e50914 !important;
+  color: #e50914 !important;
 }
 .favorite-btn {
   position: absolute;
@@ -3899,67 +4025,294 @@ window.currentAssistantClaim = false;
 window.currentFirestoreRole = "";
 window.isDrawerOpen = false;
 window.isAuthModalOpen = false;
-window.myList = JSON.parse(localStorage.getItem("my_list") || "[]");
-window.watchHistory = JSON.parse(localStorage.getItem("watch_history") || "[]");
-window.userRatings = JSON.parse(localStorage.getItem("user_ratings_cache") || "{}");
+// ================= NATIVE PERSISTENT STORAGE SYNCHRONIZATION =================
+window.saveUserDataNative = function(key, val) {
+  try {
+    const str = typeof val === "string" ? val : JSON.stringify(val);
+    localStorage.setItem(key, str);
+    if (window.AndroidBridge && typeof window.AndroidBridge.saveUserData === "function") {
+      window.AndroidBridge.saveUserData(key, str);
+    }
+  } catch (e) {
+    console.warn("saveUserDataNative error:", e);
+  }
+};
 
+window.getUserDataNative = function(key, fallback = "") {
+  try {
+    let local = localStorage.getItem(key);
+    if (local !== null && local !== undefined && local !== "") return local;
+    if (window.AndroidBridge && typeof window.AndroidBridge.getUserData === "function") {
+      let nativeVal = window.AndroidBridge.getUserData(key);
+      if (nativeVal && nativeVal.trim() !== "") {
+        localStorage.setItem(key, nativeVal);
+        return nativeVal;
+      }
+    }
+  } catch (e) {
+    console.warn("getUserDataNative error:", e);
+  }
+  return fallback;
+};
 
-// Android TV D-Pad Remote Control Navigation Listener
-window.addEventListener('keydown', (e) => {
+window.myList = JSON.parse(window.getUserDataNative("my_list", "[]") || "[]");
+window.watchHistory = JSON.parse(window.getUserDataNative("watch_history", "[]") || "[]");
+window.userRatings = JSON.parse(window.getUserDataNative("user_ratings_cache", "{}") || "{}");
+window.favorites = JSON.parse(window.getUserDataNative("favorites", "[]") || "[]");
+
+// ================= ANDROID TV 2D SPATIAL NAVIGATION ENGINE =================
+window.isTvMode = function() {
+  return Boolean(
+    window.isAndroidTv ||
+    document.body.classList.contains("tv-mode") ||
+    (window.AndroidBridge && typeof window.AndroidBridge.isTvDevice === "function" && window.AndroidBridge.isTvDevice()) ||
+    window.innerWidth >= 900
+  );
+};
+
+window.getFocusableElements = function() {
+  const activeModal = document.querySelector(".modal-backdrop[style*='display: flex'], .modal-backdrop[style*='display: block'], #filterModalOverlay:not([style*='display: none'])");
+  const sideDrawer = document.getElementById("sideDrawer");
+  const isDrawerOpen = sideDrawer && sideDrawer.classList.contains("open");
+
+  let container = document;
+  if (activeModal) {
+    container = activeModal;
+  } else if (isDrawerOpen) {
+    container = sideDrawer;
+  }
+
+  const selector = [
+    ".movie-card",
+    "button:not([disabled])",
+    ".episode-btn",
+    ".drawer-item",
+    ".back-btn",
+    ".movies-series-tab",
+    "input:not([type='hidden']):not([disabled])",
+    "select:not([disabled])",
+    "[tabindex='0']"
+  ].join(", ");
+
+  const elements = Array.from(container.querySelectorAll(selector));
+  return elements.filter(el => {
+    if (el.disabled) return false;
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) return false;
+    const s = window.getComputedStyle(el);
+    if (s.display === "none" || s.visibility === "hidden" || s.opacity === "0") return false;
+    return true;
+  });
+};
+
+window.highlightElement = function(el) {
+  if (!el) return;
+  document.querySelectorAll(".dpad-focused").forEach(b => b.classList.remove("dpad-focused"));
+  el.classList.add("dpad-focused");
+  try {
+    el.focus({ preventScroll: true });
+  } catch (e) {
+    el.focus();
+  }
+  el.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
+};
+
+window.findNextSpatialFocusable = function(direction) {
+  const focusables = window.getFocusableElements();
+  if (focusables.length === 0) return null;
+
+  let current = document.activeElement;
+  if (!current || !focusables.includes(current)) {
+    current = document.querySelector(".dpad-focused");
+  }
+
+  if (!current || !focusables.includes(current)) {
+    return focusables[0];
+  }
+
+  const currentRect = current.getBoundingClientRect();
+  const cx = currentRect.left + currentRect.width / 2;
+  const cy = currentRect.top + currentRect.height / 2;
+
+  let bestCandidate = null;
+  let minScore = Infinity;
+
+  for (const el of focusables) {
+    if (el === current) continue;
+    const r = el.getBoundingClientRect();
+    const ex = r.left + r.width / 2;
+    const ey = r.top + r.height / 2;
+    const dx = ex - cx;
+    const dy = ey - cy;
+
+    let primaryDist = 0;
+    let secondaryDist = 0;
+    let isValidDirection = false;
+
+    switch (direction) {
+      case "UP":
+        if (dy < -6) {
+          isValidDirection = true;
+          primaryDist = -dy;
+          secondaryDist = Math.abs(dx);
+        }
+        break;
+      case "DOWN":
+        if (dy > 6) {
+          isValidDirection = true;
+          primaryDist = dy;
+          secondaryDist = Math.abs(dx);
+        }
+        break;
+      case "LEFT":
+        if (dx < -6) {
+          isValidDirection = true;
+          primaryDist = -dx;
+          secondaryDist = Math.abs(dy);
+        }
+        break;
+      case "RIGHT":
+        if (dx > 6) {
+          isValidDirection = true;
+          primaryDist = dx;
+          secondaryDist = Math.abs(dy);
+        }
+        break;
+    }
+
+    if (isValidDirection) {
+      const score = primaryDist + secondaryDist * 2.2;
+      if (score < minScore) {
+        minScore = score;
+        bestCandidate = el;
+      }
+    }
+  }
+
+  return bestCandidate;
+};
+
+window.handleTvBackPress = function() {
+  const sideDrawer = document.getElementById("sideDrawer");
+  if (sideDrawer && sideDrawer.classList.contains("open")) {
+    window.closeDrawer();
+    const drawerBtn = document.getElementById("topDrawerBtn");
+    if (drawerBtn) window.highlightElement(drawerBtn);
+    return true;
+  }
+
+  const openModals = document.querySelectorAll(".modal-backdrop, #filterModalOverlay");
+  for (const m of openModals) {
+    if (m.style.display !== "none" && window.getComputedStyle(m).display !== "none") {
+      m.style.display = "none";
+      window.autoFocusCurrentPage();
+      return true;
+    }
+  }
+
+  if (window.currentPage && window.currentPage !== "home") {
+    window.goBack();
+    setTimeout(window.autoFocusCurrentPage, 140);
+    return true;
+  }
+
+  return false;
+};
+
+window.autoFocusCurrentPage = function() {
+  const focusables = window.getFocusableElements();
+  if (focusables.length === 0) return;
+
+  let target = null;
+  if (window.currentPage === "home") {
+    target = document.querySelector(".cards-scroll-row .movie-card, .cards-grid-3 .movie-card, #nav-home");
+  } else if (window.currentPage === "details") {
+    target = document.querySelector(".episode-btn, .back-btn, #watchFirstEpBtn");
+  } else if (window.currentPage === "search") {
+    target = document.getElementById("searchInput") || document.querySelector(".back-btn");
+  } else {
+    target = document.querySelector(".cards-grid-3 .movie-card, .back-btn, .bottom-nav button.active");
+  }
+
+  if (!target || !focusables.includes(target)) {
+    target = focusables[0];
+  }
+  window.highlightElement(target);
+};
+
+window.addEventListener("keydown", function(e) {
   const target = e.target;
   const active = document.activeElement;
   const isInput = (window.isTypingOrInputActive && window.isTypingOrInputActive()) ||
-                  (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable)) ||
-                  (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT' || active.isContentEditable));
+                  (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) ||
+                  (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA"));
 
-  // If user is typing in any input field or search bar, NEVER intercept keys (especially Backspace, Delete, Space, Enter, letters)!
-  if (isInput) {
-    return;
-  }
+  const key = e.key;
+  const code = e.keyCode;
 
-  // Prevent Backspace on the document body from triggering browser navigation back
-  if (e.key === 'Backspace' || e.keyCode === 8) {
+  let dir = null;
+  if (key === "ArrowUp" || code === 38 || code === 19) dir = "UP";
+  else if (key === "ArrowDown" || code === 40 || code === 20) dir = "DOWN";
+  else if (key === "ArrowLeft" || code === 37 || code === 21) dir = "LEFT";
+  else if (key === "ArrowRight" || code === 39 || code === 22) dir = "RIGHT";
+
+  if (dir) {
+    if (isInput) {
+      if (dir === "UP" || dir === "DOWN") {
+        if (active) active.blur();
+      } else {
+        return;
+      }
+    }
+
     e.preventDefault();
+    const next = window.findNextSpatialFocusable(dir);
+    if (next) {
+      window.highlightElement(next);
+    }
     return;
   }
 
-  // Prevent Space on non-button elements from accidentally clicking or navigating
-  if (e.key === ' ' || e.code === 'Space' || e.keyCode === 32) {
-    if (!active || active === document.body || active.tagName !== 'BUTTON') {
+  if (key === "Enter" || code === 13 || code === 66 || code === 23) {
+    if (isInput) {
+      if (active && typeof active.form?.onsubmit === "function") {
+        active.form.onsubmit();
+      }
+      return;
+    }
+    const curr = active || document.querySelector(".dpad-focused");
+    if (curr && curr !== document.body) {
+      e.preventDefault();
+      curr.click();
+    }
+    return;
+  }
+
+  if (key === "Escape" || key === "GoBack" || code === 27 || code === 4) {
+    if (isInput) {
+      if (active) active.blur();
       e.preventDefault();
       return;
     }
-  }
-
-  const focusable = Array.from(document.querySelectorAll('button, [tabindex="0"], input, a, video')).filter(el => !el.disabled && el.offsetParent !== null);
-  let index = focusable.indexOf(active);
-
-  if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
-    e.preventDefault();
-    if (index === -1 || index >= focusable.length - 1) {
-      focusable[0]?.focus();
-    } else {
-      focusable[index + 1]?.focus();
-    }
-    document.activeElement?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  } else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
-    e.preventDefault();
-    if (index <= 0) {
-      focusable[focusable.length - 1]?.focus();
-    } else {
-      focusable[index - 1]?.focus();
-    }
-    document.activeElement?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  } else if (e.key === 'Enter' || e.key === 'Select') {
-    if (active && active !== document.body) {
+    if (window.handleTvBackPress()) {
       e.preventDefault();
-      active.click();
     }
-  } else if (e.key === 'Escape' || e.key === 'XF86Back') {
-    e.preventDefault();
-    goBack();
+    return;
   }
-});
+}, true);
+
+window.initTvNavigationEngine = function() {
+  document.body.classList.add("tv-mode");
+  setTimeout(window.autoFocusCurrentPage, 350);
+};
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", function() {
+    if (window.isTvMode()) window.initTvNavigationEngine();
+  });
+} else {
+  if (window.isTvMode()) window.initTvNavigationEngine();
+}
 
 window.currentUserRole = "";
 window.isAdminUnlocked = false;
@@ -7318,7 +7671,7 @@ window.isFavorite=(id)=>window.favorites.includes(id);
 window.toggleFavorite=(id)=>{
   if(window.isFavorite(id))window.favorites=window.favorites.filter(x=>x!==id);
   else window.favorites.push(id);
-  localStorage.setItem("favorites",JSON.stringify(window.favorites));
+  window.saveUserDataNative("favorites", window.favorites);
   renderCurrentPage();
 };
 window.setActiveNav=(p)=>{
@@ -9554,6 +9907,7 @@ window.showPage = (p) => {
   }
   if (currentPage === p) {
     dispatchNamedPageRender(p);
+    if (typeof window.autoFocusCurrentPage === "function") setTimeout(window.autoFocusCurrentPage, 150);
     return;
   }
   window.saveCurrentPageScroll();
@@ -9562,6 +9916,7 @@ window.showPage = (p) => {
   window.selectEpisodeMode = false;
   dispatchNamedPageRender(p);
   window.scrollTo(0, 0);
+  if (typeof window.autoFocusCurrentPage === "function") setTimeout(window.autoFocusCurrentPage, 150);
 };
 
 window.renderCurrentPage = () => {
@@ -9586,6 +9941,7 @@ window.renderCurrentPage = () => {
   else {
     dispatchNamedPageRender(currentPage);
   }
+  if (typeof window.autoFocusCurrentPage === "function") setTimeout(window.autoFocusCurrentPage, 150);
 };
 
 window.goBack = () => {
@@ -9629,6 +9985,7 @@ window.goBack = () => {
   } else {
     window.scrollTo(0, 0);
   }
+  if (typeof window.autoFocusCurrentPage === "function") setTimeout(window.autoFocusCurrentPage, 150);
 };
 window.openDetailsBack=()=>{
   let fid = window._lastDetailsFid;

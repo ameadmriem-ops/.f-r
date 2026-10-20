@@ -5,6 +5,8 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.AlertDialog
 import android.app.DownloadManager
+import android.app.UiModeManager
+import android.view.KeyEvent
 import android.content.BroadcastReceiver
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -367,6 +369,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (isTvDevice()) {
+            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        }
         PosterImageCache.init(applicationContext)
         
         // Enable true edge-to-edge immersive full-screen mode across the entire application
@@ -709,6 +714,17 @@ class MainActivity : ComponentActivity() {
                     super.onPageFinished(view, url)
                     applyImmersiveFullScreen()
                     isWebViewLoaded = true
+                    if (isTvDevice()) {
+                        val tvScript = """
+                            window.isAndroidTv = true;
+                            document.documentElement.classList.add('tv-device');
+                            document.body.classList.add('tv-mode');
+                            if (typeof window.initTvNavigationEngine === 'function') {
+                                window.initTvNavigationEngine();
+                            }
+                        """.trimIndent()
+                        view?.evaluateJavascript(tvScript, null)
+                    }
                     pendingFcmNotification?.let { navData ->
                         dispatchFcmNavigation(navData)
                         pendingFcmNotification = null
@@ -1390,7 +1406,11 @@ class MainActivity : ComponentActivity() {
     private fun exitFullscreen() {
         if (!isPlayerFullscreen) return
         isPlayerFullscreen = false
-        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        if (!isTvDevice()) {
+            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        } else {
+            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        }
         applyImmersiveFullScreen()
         val density = resources.displayMetrics.density
         playerTopBar.setPadding(
@@ -1409,6 +1429,99 @@ class MainActivity : ComponentActivity() {
         } else {
             exitFullscreen()
         }
+    }
+
+    fun isTvDevice(): Boolean {
+        val uiModeManager = getSystemService(Context.UI_MODE_SERVICE) as? UiModeManager
+        val isUiModeTv = uiModeManager?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
+        val hasLeanback = packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK)
+        val hasNoTouch = !packageManager.hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN)
+        return isUiModeTv || hasLeanback || (hasNoTouch && resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE)
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // 1. If native ExoPlayer is visible, handle TV remote control playback
+        if (playerContainer.visibility == View.VISIBLE) {
+            if (event.action == KeyEvent.ACTION_DOWN) {
+                when (event.keyCode) {
+                    KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_ESCAPE -> {
+                        if (playerView.isControllerFullyVisible) {
+                            playerView.hideController()
+                        } else {
+                            closeNativePlayer()
+                        }
+                        return true
+                    }
+                    KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
+                        exoPlayer?.let { p ->
+                            if (p.isPlaying) p.pause() else p.play()
+                            playerView.showController()
+                        }
+                        return true
+                    }
+                    KeyEvent.KEYCODE_MEDIA_PLAY -> {
+                        exoPlayer?.play()
+                        playerView.showController()
+                        return true
+                    }
+                    KeyEvent.KEYCODE_MEDIA_PAUSE -> {
+                        exoPlayer?.pause()
+                        playerView.showController()
+                        return true
+                    }
+                    KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_MEDIA_REWIND, KeyEvent.KEYCODE_MEDIA_STEP_BACKWARD -> {
+                        exoPlayer?.seekBack()
+                        playerView.showController()
+                        return true
+                    }
+                    KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_MEDIA_FAST_FORWARD, KeyEvent.KEYCODE_MEDIA_STEP_FORWARD -> {
+                        exoPlayer?.seekForward()
+                        playerView.showController()
+                        return true
+                    }
+                    KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> {
+                        if (playerView.isControllerFullyVisible) {
+                            playerView.hideController()
+                        } else {
+                            playerView.showController()
+                        }
+                        return true
+                    }
+                }
+            }
+            return playerView.dispatchKeyEvent(event) || super.dispatchKeyEvent(event)
+        }
+
+        // 2. If user is in WebView
+        if (event.action == KeyEvent.ACTION_DOWN) {
+            when (event.keyCode) {
+                KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_ESCAPE -> {
+                    val imeVisible = ViewCompat.getRootWindowInsets(window.decorView)
+                        ?.isVisible(WindowInsetsCompat.Type.ime()) == true
+                    if (imeVisible || isInputFocusedInWebView || isKeyboardActive) {
+                        return super.dispatchKeyEvent(event)
+                    }
+                    webView.evaluateJavascript(
+                        "(function() { " +
+                        "  if (typeof window.handleTvBackPress === 'function') { return window.handleTvBackPress(); } " +
+                        "  if (window.handleAppBack && window.handleAppBack()) { return true; } " +
+                        "  if (window.historyStack && window.historyStack.length > 0) { window.goBack(); return true; } " +
+                        "  return false; " +
+                        "})()"
+                    ) { result ->
+                        val handled = result?.toBoolean() ?: false
+                        if (!handled) {
+                            runOnUiThread {
+                                finish()
+                            }
+                        }
+                    }
+                    return true
+                }
+            }
+        }
+
+        return super.dispatchKeyEvent(event)
     }
 
     fun applyImmersiveFullScreen() {
@@ -1865,6 +1978,30 @@ class MainActivity : ComponentActivity() {
 
         @JavascriptInterface
         fun isAvailable(): Boolean = true
+
+        @JavascriptInterface
+        fun isTvDevice(): Boolean = activity.isTvDevice()
+
+        @JavascriptInterface
+        fun saveUserData(key: String, jsonValue: String) {
+            try {
+                val prefs = activity.getSharedPreferences("black_anime_user_data", Context.MODE_PRIVATE)
+                prefs.edit().putString(key, jsonValue).apply()
+            } catch (e: Exception) {
+                Log.e(TAG, "saveUserData error for key $key", e)
+            }
+        }
+
+        @JavascriptInterface
+        fun getUserData(key: String): String {
+            return try {
+                val prefs = activity.getSharedPreferences("black_anime_user_data", Context.MODE_PRIVATE)
+                prefs.getString(key, "") ?: ""
+            } catch (e: Exception) {
+                Log.e(TAG, "getUserData error for key $key", e)
+                ""
+            }
+        }
 
         @JavascriptInterface
         fun setInputFocused(isFocused: Boolean) {
